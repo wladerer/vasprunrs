@@ -1,0 +1,34 @@
+[package]
+name = "vasprunrs"
+version = "0.1.0"
+edition = "2021"
+description = "Fast parser for VASP vasprun.xml files with Python bindings"
+license = "MIT"
+
+[lib]
+name = "vasprunrs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+roxmltree   = "0.19"
+ndarray     = "0.16"
+indexmap    = "2"
+anyhow      = "1"
+encoding_rs = "0.8"
+thiserror   = "2"
+
+[dependencies.pyo3]
+version = "0.22"
+features = ["extension-module"]
+optional = true
+
+[dependencies.numpy]
+version = "0.22"
+optional = true
+
+[features]
+default = []
+python  = ["pyo3", "numpy"]
+
+[dev-dependencies]
+approx = "0.5"

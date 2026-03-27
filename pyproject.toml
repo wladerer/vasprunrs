@@ -1,0 +1,19 @@
+[build-system]
+requires      = ["maturin>=1.4,<2"]
+build-backend = "maturin"
+
+[project]
+name            = "vasprunrs"
+version         = "0.1.0"
+description     = "Fast parser for VASP vasprun.xml files"
+requires-python = ">=3.9"
+license         = { text = "MIT" }
+dependencies    = ["numpy"]
+
+[project.optional-dependencies]
+pymatgen = ["pymatgen"]
+
+[tool.maturin]
+features        = ["python"]
+module-name     = "vasprunrs"
+python-source   = "python"
