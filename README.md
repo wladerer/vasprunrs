@@ -21,11 +21,9 @@ pip install "vasprunrs[pymatgen]"
 # Before
 from pymatgen.io.vasp import Vasprun
 
-# After — same API, faster parsing
+# After
 from vasprunrs.pymatgen import Vasprunrs as Vasprun
 ```
-
-Everything else stays the same:
 
 ```python
 vr = Vasprun("vasprun.xml")
@@ -76,7 +74,7 @@ print(vr.dos)               # dict with efermi, total, partial
 
 ## Performance
 
-`vasprunrs` uses a streaming XML parser that never loads the entire file into memory. Parse times are typically 5–10x faster than pymatgen's Python parser.
+`vasprunrs` uses a streaming XML parser that does not load the entire file into memory. Parse times are typically 5–10x faster than pymatgen's Python parser.
 
 ## Parse options
 
