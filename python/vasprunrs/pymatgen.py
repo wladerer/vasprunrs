@@ -274,7 +274,6 @@ class Vasprunrs:
         raw = self._raw.eigenvalues
         if raw is None:
             return None
-        from pymatgen.electronic_structure.core import Spin
         spins = _pmg_spin(raw.shape[0])
         # raw shape: (nspins, nkpts, nbands, 2) → per-spin: (nkpts, nbands, 2)
         return {spin: raw[i] for i, spin in enumerate(spins)}
@@ -288,7 +287,6 @@ class Vasprunrs:
         proj = self._raw.projected
         if proj is None:
             return None
-        from pymatgen.electronic_structure.core import Spin
         data = proj["data"]   # (nspins, nkpts, nbands, nions, norbitals)
         spins = _pmg_spin(data.shape[0])
         return {spin: data[i] for i, spin in enumerate(spins)}
@@ -306,7 +304,6 @@ class Vasprunrs:
     @property
     def idos(self) -> Dos:
         from pymatgen.electronic_structure.dos import Dos
-        from pymatgen.electronic_structure.core import Spin
         dos_raw = self._raw.dos
         if dos_raw is None:
             raise RuntimeError("No DOS data in this vasprun.xml")
@@ -318,7 +315,6 @@ class Vasprunrs:
 
     def _make_tdos(self) -> Dos:
         from pymatgen.electronic_structure.dos import Dos
-        from pymatgen.electronic_structure.core import Spin
         dos_raw = self._raw.dos
         if dos_raw is None:
             raise RuntimeError("No DOS data in this vasprun.xml")
@@ -333,8 +329,8 @@ class Vasprunrs:
         structure: Structure | None = None,
         integrated_dos: bool = False,
     ) -> CompleteDos:
-        from pymatgen.electronic_structure.dos import CompleteDos, Dos
-        from pymatgen.electronic_structure.core import Spin, OrbitalType, Orbital
+        from pymatgen.electronic_structure.core import Orbital
+        from pymatgen.electronic_structure.dos import CompleteDos
         dos_raw = self._raw.dos
         if dos_raw is None:
             raise RuntimeError("No DOS data in this vasprun.xml")
@@ -377,7 +373,6 @@ class Vasprunrs:
             BandStructure,
             BandStructureSymmLine,
         )
-        from pymatgen.electronic_structure.core import Spin
 
         eigs = self.eigenvalues
         if eigs is None:
