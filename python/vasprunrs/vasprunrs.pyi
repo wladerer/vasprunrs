@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import Optional
 
 class Vasprun:
     """Fast VASP vasprun.xml parser backed by a Rust streaming XML parser.
@@ -30,7 +29,7 @@ class Vasprun:
         parse_dos: bool = True,
         parse_eigen: bool = True,
         parse_projected: bool = False,
-        ionic_step_skip: Optional[int] = None,
+        ionic_step_skip: int | None = None,
         ionic_step_offset: int = 0,
     ) -> None: ...
 
@@ -126,7 +125,7 @@ class Vasprun:
     # --- eigenvalues ---------------------------------------------------------
 
     @property
-    def eigenvalues(self) -> Optional[np.ndarray]:
+    def eigenvalues(self) -> np.ndarray | None:
         """Eigenvalues array of shape ``(nspins, nkpts, nbands, 2)``.
 
         Axis 3: ``[energy (eV), occupancy]``.
@@ -135,14 +134,14 @@ class Vasprun:
         ...
 
     @property
-    def eigenvalue_shape(self) -> Optional[tuple[int, int, int]]:
+    def eigenvalue_shape(self) -> tuple[int, int, int] | None:
         """``(nspins, nkpts, nbands)`` or ``None`` when not parsed."""
         ...
 
     # --- projected eigenvalues -----------------------------------------------
 
     @property
-    def projected(self) -> Optional[dict[str, object]]:
+    def projected(self) -> dict[str, object] | None:
         """Projected eigenvalues (LORBIT >= 10).
 
         Returns a dict with:
@@ -156,14 +155,14 @@ class Vasprun:
     # --- Fermi level ---------------------------------------------------------
 
     @property
-    def efermi(self) -> Optional[float]:
+    def efermi(self) -> float | None:
         """Fermi level in eV, or ``None`` if not found in the file."""
         ...
 
     # --- DOS -----------------------------------------------------------------
 
     @property
-    def dos(self) -> Optional[dict[str, object]]:
+    def dos(self) -> dict[str, object] | None:
         """Density of states data.
 
         Returns a dict with:
@@ -178,7 +177,7 @@ class Vasprun:
     # --- dielectric ----------------------------------------------------------
 
     @property
-    def dielectric(self) -> Optional[dict[str, object]]:
+    def dielectric(self) -> dict[str, object] | None:
         """Frequency-dependent dielectric function.
 
         Returns a dict with:

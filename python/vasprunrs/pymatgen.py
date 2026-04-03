@@ -23,7 +23,6 @@ import hashlib
 import itertools
 import math
 import os
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -44,8 +43,8 @@ if TYPE_CHECKING:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _pmg_structure(raw_dict: dict) -> "Structure":
-    from pymatgen.core import Structure, Lattice
+def _pmg_structure(raw_dict: dict) -> Structure:
+    from pymatgen.core import Lattice, Structure
     lattice = Lattice(raw_dict["lattice"])
     return Structure(
         lattice=lattice,
@@ -147,15 +146,15 @@ class Vasprunrs:
     # ---- structures --------------------------------------------------------
 
     @property
-    def final_structure(self) -> "Structure":
+    def final_structure(self) -> Structure:
         return _pmg_structure(self._raw.final_structure)
 
     @property
-    def initial_structure(self) -> "Structure":
+    def initial_structure(self) -> Structure:
         return _pmg_structure(self._raw.initial_structure)
 
     @property
-    def structures(self) -> list["Structure"]:
+    def structures(self) -> list[Structure]:
         """All ionic-step structures, plus the final structure."""
         structs = [_pmg_structure(s["structure"]) for s in self._raw.ionic_steps]
         # append final if it differs from the last ionic step
@@ -297,15 +296,15 @@ class Vasprunrs:
     # ---- DOS ---------------------------------------------------------------
 
     @property
-    def complete_dos(self) -> "CompleteDos":
+    def complete_dos(self) -> CompleteDos:
         return self.get_complete_dos()
 
     @property
-    def tdos(self) -> "Dos":
+    def tdos(self) -> Dos:
         return self._make_tdos()
 
     @property
-    def idos(self) -> "Dos":
+    def idos(self) -> Dos:
         from pymatgen.electronic_structure.dos import Dos
         from pymatgen.electronic_structure.core import Spin
         dos_raw = self._raw.dos
@@ -317,7 +316,7 @@ class Vasprunrs:
         densities = {spin: idos_arr[i] for i, spin in enumerate(spins)}
         return Dos(self.efermi, energies, densities)
 
-    def _make_tdos(self) -> "Dos":
+    def _make_tdos(self) -> Dos:
         from pymatgen.electronic_structure.dos import Dos
         from pymatgen.electronic_structure.core import Spin
         dos_raw = self._raw.dos
@@ -331,9 +330,9 @@ class Vasprunrs:
 
     def get_complete_dos(
         self,
-        structure: "Structure | None" = None,
+        structure: Structure | None = None,
         integrated_dos: bool = False,
-    ) -> "CompleteDos":
+    ) -> CompleteDos:
         from pymatgen.electronic_structure.dos import CompleteDos, Dos
         from pymatgen.electronic_structure.core import Spin, OrbitalType, Orbital
         dos_raw = self._raw.dos
@@ -373,13 +372,12 @@ class Vasprunrs:
         efermi: float | None = None,
         line_mode: bool = False,
         efermi_to_vbm: bool = False,
-    ) -> "BandStructure | BandStructureSymmLine":
+    ) -> BandStructure | BandStructureSymmLine:
         from pymatgen.electronic_structure.bandstructure import (
             BandStructure,
             BandStructureSymmLine,
         )
         from pymatgen.electronic_structure.core import Spin
-        from pymatgen.io.vasp.inputs import Kpoints
 
         eigs = self.eigenvalues
         if eigs is None:
@@ -559,12 +557,16 @@ class Vasprunrs:
             for kpoint, val in enumerate(eigenvalue):
                 for eigenval, occ in val:
                     if occ > self.occu_tol and eigenval > vbm:
-                        vbm = eigenval;  vbm_kpoint = kpoint
+                        vbm = eigenval
+                        vbm_kpoint = kpoint
                     elif occ <= self.occu_tol and eigenval < cbm:
-                        cbm = eigenval;  cbm_kpoint = kpoint
+                        cbm = eigenval
+                        cbm_kpoint = kpoint
             if self.separate_spins:
-                vbm_spins.append(vbm);  vbm_kpts.append(vbm_kpoint)
-                cbm_spins.append(cbm);  cbm_kpts.append(cbm_kpoint)
+                vbm_spins.append(vbm)
+                vbm_kpts.append(vbm_kpoint)
+                cbm_spins.append(cbm)
+                cbm_kpts.append(cbm_kpoint)
 
         if self.separate_spins:
             return (
