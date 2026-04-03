@@ -1,16 +1,12 @@
-use vasprunrs::{parse_file, ParseOptions};
+use vasprunrs::{parse_bytes, parse_file, ParseOptions};
 
-// ── test fixtures ──────────────────────────────────────────────────────────
-// Test-suite XMLs (committed to repo)
-const SI_RPA:    &str = "tests/si_rpa.xml";
-const N_GW:      &str = "tests/n_gw_large.xml";
-const MOS2_SOC:  &str = "tests/mos2_soc.xml";
-
-// Research XMLs — large real-world calculations (skipped if absent)
-const COAGBI2TE3_SOC: &str = "/home/wladerer/research/interfaces/dosses/COAgBi2Te3/soc/vasprun.xml";
-const AGBI2TE3_SOC:   &str = "/home/wladerer/research/interfaces/dosses/AgBi2Te3/soc/vasprun.xml";
-const AUBI2TE3_BAND:  &str = "/home/wladerer/research/interfaces/dosses/AuBi2Te3/band/vasprun.xml";
-const PT_SOC:         &str = "/home/wladerer/research/interfaces/dosses/slabs/Pt/bare/soc/vasprun.xml";
+// ── test fixtures (all gzip-compressed) ───────────────────────────────────
+const SI_RPA:    &str = "tests/si_rpa.xml.gz";
+const N_GW:      &str = "tests/n_gw_large.xml.gz";
+const MOS2_SOC:  &str = "tests/mos2_soc.xml.gz";
+const FE_FM:    &str = "tests/fe_fm.xml.gz";    // BCC Fe FM,  1 atom, NSW=0, LORBIT=11
+const FE_AFM:   &str = "tests/fe_afm.xml.gz";   // BCC Fe AFM, 2 atoms, NSW=0, LORBIT=11
+const FE_RELAX: &str = "tests/fe_relax.xml.gz"; // BCC Fe FM,  1 atom, NSW=5 (3 ionic steps)
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -19,12 +15,11 @@ fn parse(path: &str) -> vasprunrs::Vasprun {
         .unwrap_or_else(|e| panic!("Failed to parse {path}: {e}"))
 }
 
-fn skip_if_absent(path: &str) -> bool {
-    if !std::path::Path::new(path).exists() {
-        eprintln!("SKIP: {path} not found");
-        return true;
-    }
-    false
+fn parse_gz(path: &str) -> vasprunrs::Vasprun { parse(path) }
+
+fn parse_gz_opts(path: &str, opts: ParseOptions) -> vasprunrs::Vasprun {
+    parse_file(path, opts)
+        .unwrap_or_else(|e| panic!("Failed to parse {path}: {e}"))
 }
 
 fn assert_structure_valid(s: &vasprunrs::Structure, label: &str) {
@@ -148,47 +143,217 @@ fn mos2_soc_kpoints() {
     assert!((wsum - 1.0).abs() < 1e-6, "kpoint weights sum to {wsum}, expected 1.0");
 }
 
-// ── Research files (skipped if not present) ────────────────────────────────
+// ── Magnetization ──────────────────────────────────────────────────────────
+
+/// Minimal vasprun.xml snippet with a collinear magnetization block (ISPIN=2).
+/// Each <v> in the magnetization varray has one float (total moment per atom).
+const COLLINEAR_MAG_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<modeling>
+ <generator>
+  <i name="program" type="string">vasp</i>
+  <i name="version" type="string">6.4.2</i>
+  <i name="subversion" type="string"> (build)</i>
+  <i name="platform" type="string">linux</i>
+  <i name="date" type="string">2024 01 01</i>
+  <i name="time" type="string">12:00:00</i>
+ </generator>
+ <incar><i type="int" name="ISPIN">2</i></incar>
+ <atominfo>
+  <atoms>2</atoms>
+  <types>1</types>
+  <array name="atoms">
+   <dimension dim="1">ion</dimension>
+   <field type="string">element</field>
+   <field type="int">atomtype</field>
+   <set>
+    <rc><c>Fe</c><c>1</c></rc>
+    <rc><c>Fe</c><c>1</c></rc>
+   </set>
+  </array>
+  <array name="atomtypes">
+   <dimension dim="1">type</dimension>
+   <field type="int">atomspertype</field>
+   <field type="string">element</field>
+   <field>mass</field>
+   <field>valence</field>
+   <field type="string">pseudopotential</field>
+   <set>
+    <rc><c>2</c><c>Fe</c><c>55.845</c><c>8</c><c>PAW_PBE Fe</c></rc>
+   </set>
+  </array>
+ </atominfo>
+ <kpoints>
+  <varray name="kpointlist"><v>0.0 0.0 0.0</v></varray>
+  <varray name="weights"><v>1.0</v></varray>
+ </kpoints>
+ <structure name="initialpos">
+  <crystal>
+   <varray name="basis">
+    <v>1.43 1.43 1.43</v>
+    <v>-1.43 1.43 1.43</v>
+    <v>-1.43 -1.43 1.43</v>
+   </varray>
+   <i name="volume">23.5</i>
+   <varray name="rec_basis">
+    <v>0.35 -0.35 0.0</v>
+    <v>0.35 0.35 0.0</v>
+    <v>0.0 0.0 0.35</v>
+   </varray>
+  </crystal>
+  <varray name="positions">
+   <v>0.0 0.0 0.0</v>
+   <v>0.5 0.5 0.5</v>
+  </varray>
+ </structure>
+ <calculation>
+  <structure>
+   <crystal>
+    <varray name="basis">
+     <v>1.43 1.43 1.43</v>
+     <v>-1.43 1.43 1.43</v>
+     <v>-1.43 -1.43 1.43</v>
+    </varray>
+    <i name="volume">23.5</i>
+    <varray name="rec_basis">
+     <v>0.35 -0.35 0.0</v>
+     <v>0.35 0.35 0.0</v>
+     <v>0.0 0.0 0.35</v>
+    </varray>
+   </crystal>
+   <varray name="positions">
+    <v>0.0 0.0 0.0</v>
+    <v>0.5 0.5 0.5</v>
+   </varray>
+  </structure>
+  <varray name="forces">
+   <v>0.0 0.0 0.0</v>
+   <v>0.0 0.0 0.0</v>
+  </varray>
+  <varray name="stress">
+   <v>1.0 0.0 0.0</v>
+   <v>0.0 1.0 0.0</v>
+   <v>0.0 0.0 1.0</v>
+  </varray>
+  <varray name="magnetization">
+   <v>2.1</v>
+   <v>-2.1</v>
+  </varray>
+  <energy>
+   <i name="e_fr_energy">-16.2</i>
+   <i name="e_wo_entrp">-16.1</i>
+   <i name="e_0_energy">-16.15</i>
+  </energy>
+ </calculation>
+ <structure name="finalpos">
+  <crystal>
+   <varray name="basis">
+    <v>1.43 1.43 1.43</v>
+    <v>-1.43 1.43 1.43</v>
+    <v>-1.43 -1.43 1.43</v>
+   </varray>
+   <i name="volume">23.5</i>
+   <varray name="rec_basis">
+    <v>0.35 -0.35 0.0</v>
+    <v>0.35 0.35 0.0</v>
+    <v>0.0 0.0 0.35</v>
+   </varray>
+  </crystal>
+  <varray name="positions">
+   <v>0.0 0.0 0.0</v>
+   <v>0.5 0.5 0.5</v>
+  </varray>
+ </structure>
+</modeling>"#;
 
 #[test]
-fn research_coagbi2te3_soc() {
-    if skip_if_absent(COAGBI2TE3_SOC) { return; }
-    let v = parse(COAGBI2TE3_SOC);
-    assert_structure_valid(&v.final_structure, "COAgBi2Te3");
-    assert!(!v.atominfo.atoms.is_empty());
-    assert_eigenvalues_valid(&v);
-    eprintln!("COAgBi2Te3 SOC: {} atoms, {} kpts, {} ionic steps",
-        v.atominfo.atoms.len(), v.kpoints.nkpts(), v.ionic_steps.len());
-}
-
-#[test]
-fn research_agbi2te3_soc() {
-    if skip_if_absent(AGBI2TE3_SOC) { return; }
-    let v = parse(AGBI2TE3_SOC);
-    assert_structure_valid(&v.final_structure, "AgBi2Te3");
-    assert_eigenvalues_valid(&v);
-    if let Some(dos) = &v.dos {
-        assert!(!dos.total.energies.is_empty(), "DOS energies should be present");
+fn magnetization_absent_for_non_magnetic() {
+    // Si RPA is non-magnetic — magnetization should be None on every ionic step
+    let v = parse(SI_RPA);
+    for step in &v.ionic_steps {
+        assert!(
+            step.magnetization.is_none(),
+            "non-magnetic calculation should have no magnetization",
+        );
     }
 }
 
 #[test]
-fn research_aubi2te3_band() {
-    if skip_if_absent(AUBI2TE3_BAND) { return; }
-    let v = parse(AUBI2TE3_BAND);
-    assert_structure_valid(&v.final_structure, "AuBi2Te3 band");
-    assert_eigenvalues_valid(&v);
-    // Band structure calculations typically use line-mode kpoints
-    eprintln!("AuBi2Te3 band: {} kpts, labels={:?}",
-        v.kpoints.nkpts(), v.kpoints.labels);
+fn magnetization_collinear_parsed() {
+    let v = parse_bytes(COLLINEAR_MAG_XML.as_bytes(), ParseOptions::default()).unwrap();
+    assert_eq!(v.ionic_steps.len(), 1);
+    let mag = v.ionic_steps[0].magnetization.as_ref()
+        .expect("magnetization should be present for ISPIN=2 calc");
+    assert_eq!(mag.len(), 2, "one entry per atom");
+    // collinear: each entry is a single float
+    assert_eq!(mag[0].len(), 1);
+    assert_eq!(mag[1].len(), 1);
+    assert!((mag[0][0] - 2.1).abs() < 1e-9,  "Fe[0] moment ≈ 2.1 μB");
+    assert!((mag[1][0] - (-2.1)).abs() < 1e-9, "Fe[1] moment ≈ -2.1 μB");
+}
+
+
+// ── Fe fixtures (VASP 6.4.1, gzip-compressed) ─────────────────────────────
+// Reference values cross-checked against pymatgen.io.vasp.Vasprun.
+
+#[test]
+fn fe_fm_basic() {
+    let v = parse_gz(FE_FM);
+    assert_eq!(v.atominfo.atoms, vec!["Fe"]);
+    assert_eq!(v.kpoints.nkpts(), 29);
+    assert_eq!(v.ionic_steps.len(), 1);
+    assert!((v.ionic_steps[0].energy.e_fr_energy - (-8.227_466)).abs() < 1e-4);
+    assert_structure_valid(&v.final_structure, "Fe FM final");
 }
 
 #[test]
-fn research_pt_soc() {
-    if skip_if_absent(PT_SOC) { return; }
-    let v = parse(PT_SOC);
-    assert_structure_valid(&v.final_structure, "Pt slab SOC");
+fn fe_fm_spin_polarized_eigenvalues() {
+    let v = parse_gz(FE_FM);
+    let eig = v.eigenvalues.as_ref().expect("Fe FM should have eigenvalues");
+    // ISPIN=2 → 2 spin channels; 29 irreducible kpoints; 9 bands
+    assert_eq!((eig.nspins, eig.nkpts, eig.nbands), (2, 29, 9));
     assert_eigenvalues_valid(&v);
-    eprintln!("Pt SOC: {} atoms, {} kpts",
-        v.atominfo.atoms.len(), v.kpoints.nkpts());
+}
+
+#[test]
+fn fe_fm_efermi() {
+    let v = parse_gz(FE_FM);
+    let efermi = v.efermi.expect("Fe FM should have efermi");
+    assert!((efermi - 5.857_667).abs() < 1e-4);
+}
+
+#[test]
+fn fe_fm_magnetization_absent_vasp6() {
+    // VASP 6.x does not write <varray name="magnetization"> in the
+    // calculation block.  The field should be None for all ionic steps.
+    let v = parse_gz(FE_FM);
+    for step in &v.ionic_steps {
+        assert!(step.magnetization.is_none(),
+            "VASP 6.x should not produce a magnetization varray");
+    }
+}
+
+#[test]
+fn fe_afm_two_atoms() {
+    let v = parse_gz(FE_AFM);
+    assert_eq!(v.atominfo.atoms, vec!["Fe", "Fe"]);
+    assert_eq!(v.kpoints.nkpts(), 20);
+    assert_eq!(v.ionic_steps.len(), 1);
+    assert!((v.ionic_steps[0].energy.e_fr_energy - (-15.592_996)).abs() < 1e-4);
+    let eig = v.eigenvalues.expect("Fe AFM should have eigenvalues");
+    assert_eq!((eig.nspins, eig.nkpts, eig.nbands), (2, 20, 12));
+}
+
+#[test]
+fn fe_relax_ionic_steps() {
+    let v = parse_gz(FE_RELAX);
+    assert_eq!(v.ionic_steps.len(), 3);
+    // energies should decrease (or stay flat) over the relaxation
+    let energies: Vec<f64> = v.ionic_steps.iter()
+        .map(|s| s.energy.e_fr_energy)
+        .collect();
+    for w in energies.windows(2) {
+        assert!(w[1] <= w[0] + 1e-6,
+            "energy should not increase during relaxation: {:.6} → {:.6}", w[0], w[1]);
+    }
+    assert!((v.ionic_steps.last().unwrap().energy.e_fr_energy - (-8.229_077)).abs() < 1e-4);
 }

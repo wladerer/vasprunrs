@@ -8,12 +8,40 @@ version         = "0.1.0"
 description     = "Fast parser for VASP vasprun.xml files"
 requires-python = ">=3.9"
 license         = { text = "MIT" }
+readme          = "README.md"
+authors         = [{ name = "Will Laderer" }]
+keywords        = ["vasp", "materials-science", "dft", "vasprun", "parser", "rust"]
+classifiers     = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
 dependencies    = ["numpy"]
 
 [project.optional-dependencies]
 pymatgen = ["pymatgen"]
 
+[project.urls]
+Homepage   = "https://github.com/wladerer/vasprunrs"
+Repository = "https://github.com/wladerer/vasprunrs"
+Issues     = "https://github.com/wladerer/vasprunrs/issues"
+
 [tool.maturin]
 features        = ["python"]
 module-name     = "vasprunrs"
 python-source   = "python"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]  # line-length enforced by formatter, not linter

@@ -16,9 +16,29 @@ pub struct PyVasprun {
 #[pymethods]
 impl PyVasprun {
     #[new]
-    #[pyo3(signature = (path, parse_projected = false))]
-    fn new(path: &str, parse_projected: bool) -> PyResult<Self> {
-        let opts = ParseOptions { parse_projected };
+    #[pyo3(signature = (
+        path,
+        parse_dos            = true,
+        parse_eigen          = true,
+        parse_projected      = false,
+        ionic_step_skip      = None,
+        ionic_step_offset    = 0,
+    ))]
+    fn new(
+        path: &str,
+        parse_dos: bool,
+        parse_eigen: bool,
+        parse_projected: bool,
+        ionic_step_skip: Option<usize>,
+        ionic_step_offset: usize,
+    ) -> PyResult<Self> {
+        let opts = ParseOptions {
+            parse_dos,
+            parse_eigen,
+            parse_projected,
+            ionic_step_skip,
+            ionic_step_offset,
+        };
         let inner = parse_file(path, opts)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(PyVasprun { inner })
@@ -123,6 +143,9 @@ impl PyVasprun {
             d.set_item("forces", forces)?;
             let stress: Vec<Vec<f64>> = step.stress.iter().map(|r| r.to_vec()).collect();
             d.set_item("stress", stress)?;
+            if let Some(ref mag) = step.magnetization {
+                d.set_item("magnetization", mag.clone())?;
+            }
             list.append(d)?;
         }
         Ok(list.into())

@@ -1,39 +1,78 @@
 use indexmap::IndexMap;
-use roxmltree::Node;
+use quick_xml::events::Event;
 use crate::error::Result;
 use crate::types::{Generator, IncarValue};
 use super::helpers::*;
 
-pub fn parse_generator(node: Node) -> Result<Generator> {
+/// Parse <generator> block. Called after Start("generator") event.
+/// Reads until </generator>.
+pub fn parse_generator(reader: &mut XmlReader) -> Result<Generator> {
     let mut g = Generator::default();
-    for child in node.children().filter(|n| n.is_element()) {
-        let name = child.attribute("name").unwrap_or("");
-        let text = node_text(child).to_string();
-        match name {
-            "program"    => g.program    = text,
-            "version"    => g.version    = text,
-            "subversion" => g.subversion = text,
-            "platform"   => g.platform   = text,
-            "date"       => g.date       = text,
-            "time"       => g.time       = text,
-            _            => {}
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) => {
+                let name_attr = attr_str(e, b"name").unwrap_or_default();
+                let text = read_text(reader)?;
+                match name_attr.as_str() {
+                    "program"    => g.program    = text,
+                    "version"    => g.version    = text,
+                    "subversion" => g.subversion = text,
+                    "platform"   => g.platform   = text,
+                    "date"       => g.date       = text,
+                    "time"       => g.time       = text,
+                    _            => {}
+                }
+            }
+            Event::Empty(ref e) => {
+                // Self-closing <i .../> — skip
+                let _ = attr_str(e, b"name");
+            }
+            Event::End(ref e) if e.name().as_ref() == b"generator" => break,
+            Event::Eof => break,
+            _ => {}
         }
     }
     Ok(g)
 }
 
-pub fn parse_incar(node: Node) -> Result<IndexMap<String, IncarValue>> {
+/// Parse <incar> block. Called after Start("incar") event.
+/// Reads until </incar>.
+pub fn parse_incar(reader: &mut XmlReader) -> Result<IndexMap<String, IncarValue>> {
     let mut map = IndexMap::new();
-    for child in node.children().filter(|n| n.is_element() && n.tag_name().name() == "i") {
-        let name = match child.attribute("name") {
-            Some(n) => n.to_string(),
-            None    => continue,
-        };
-        let type_attr = child.attribute("type").unwrap_or("float");
-        let text = node_text(child);
-
-        let value = parse_incar_value(text, type_attr);
-        map.insert(name, value);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) if e.name().as_ref() == b"i" => {
+                let name = match attr_str(e, b"name") {
+                    Some(n) => n,
+                    None => {
+                        let _ = read_text(reader)?;
+                        continue;
+                    }
+                };
+                let type_attr = attr_str(e, b"type").unwrap_or_else(|| "float".into());
+                let text = read_text(reader)?;
+                let value = parse_incar_value(&text, &type_attr);
+                map.insert(name, value);
+            }
+            Event::Empty(ref e) if e.name().as_ref() == b"i" => {
+                // Self-closing <i name="X" .../> — empty value
+                if let Some(name) = attr_str(e, b"name") {
+                    let type_attr = attr_str(e, b"type").unwrap_or_else(|| "string".into());
+                    map.insert(name, parse_incar_value("", &type_attr));
+                }
+            }
+            Event::End(ref e) if e.name().as_ref() == b"incar" => break,
+            Event::Eof => break,
+            Event::Start(ref e) => {
+                let tag = e.name().as_ref().to_vec();
+                skip_element(reader, &tag)?;
+            }
+            _ => {}
+        }
     }
     Ok(map)
 }
@@ -46,13 +85,11 @@ fn parse_incar_value(text: &str, type_attr: &str) -> IncarValue {
             .map(IncarValue::Int)
             .unwrap_or_else(|_| IncarValue::Str(text.to_string())),
 
-        "logical" => {
-            if text.trim().to_uppercase().starts_with('T') {
-                IncarValue::Bool(true)
-            } else {
-                IncarValue::Bool(false)
-            }
-        }
+        "logical" => match text.trim().to_uppercase().as_str() {
+            "T" | ".TRUE."  | "TRUE"  => IncarValue::Bool(true),
+            "F" | ".FALSE." | "FALSE" => IncarValue::Bool(false),
+            _ => IncarValue::Str(text.to_string()),
+        },
 
         "string" => IncarValue::Str(text.to_string()),
 

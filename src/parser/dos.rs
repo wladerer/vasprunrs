@@ -1,105 +1,258 @@
 use ndarray::Array2;
-use roxmltree::Node;
+use quick_xml::events::Event;
 use crate::error::{Result, VasprunError};
 use crate::types::{Dos, DosData, PartialDos};
 use super::helpers::*;
 
-pub fn parse_dos(node: Node) -> Result<Dos> {
-    let efermi = child_named(node, "i", "efermi")
-        .and_then(|n| node_text(n).parse::<f64>().ok())
-        .unwrap_or(0.0);
+/// Parse <dos> block. Called after Start("dos") event. Reads until </dos>.
+pub fn parse_dos(reader: &mut XmlReader) -> Result<Dos> {
+    let mut efermi = 0.0f64;
+    let mut total: Option<DosData> = None;
+    let mut partial: Option<PartialDos> = None;
+    let mut buf = Vec::new();
 
-    let total_node = child_element(node, "total")
-        .ok_or_else(|| VasprunError::MissingElement("total inside dos".into()))?;
-    let total = parse_dos_data(total_node)?;
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) => {
+                let tag = e.name().as_ref().to_vec();
+                match tag.as_slice() {
+                    b"i" => {
+                        let name_attr = attr_str(e, b"name").unwrap_or_default();
+                        let text = read_text(reader)?;
+                        if name_attr == "efermi" {
+                            efermi = text.parse::<f64>().unwrap_or(0.0);
+                        }
+                    }
+                    b"total" => {
+                        total = Some(parse_dos_data(reader, b"total")?);
+                    }
+                    b"partial" => {
+                        partial = Some(parse_partial_dos(reader)?);
+                    }
+                    _ => {
+                        skip_element(reader, &tag)?;
+                    }
+                }
+            }
+            Event::End(ref e) if e.name().as_ref() == b"dos" => break,
+            Event::Eof => break,
+            _ => {}
+        }
+    }
 
-    let partial = child_element(node, "partial")
-        .map(|n| parse_partial_dos(n))
-        .transpose()?;
+    let total = total.ok_or_else(|| VasprunError::MissingElement("total inside dos".into()))?;
 
     Ok(Dos { efermi, total, partial })
 }
 
-/// Parse <total> or inner <array> blocks: spin > gridpoints rows of [energy, dos, integrated].
-fn parse_dos_data(node: Node) -> Result<DosData> {
-    let array = child_element(node, "array")
-        .ok_or_else(|| VasprunError::MissingElement("array inside dos/total".into()))?;
+/// Parse <total> or <partial> DOS array block. Called after Start("total") or Start("partial").
+/// `end_tag` is the tag that terminates this block.
+fn parse_dos_data(reader: &mut XmlReader, end_tag: &[u8]) -> Result<DosData> {
+    let mut result: Option<DosData> = None;
+    let mut buf = Vec::new();
 
-    let top_set = child_element(array, "set")
-        .ok_or_else(|| VasprunError::MissingElement("set inside dos array".into()))?;
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) if e.name().as_ref() == b"array" => {
+                result = Some(parse_dos_array(reader)?);
+            }
+            Event::End(ref e) if e.name().as_ref() == end_tag => break,
+            Event::Eof => break,
+            Event::Start(ref e) => {
+                let tag = e.name().as_ref().to_vec();
+                skip_element(reader, &tag)?;
+            }
+            _ => {}
+        }
+    }
 
-    let spin_sets = children_tagged(top_set, "set");
-    let nspins = spin_sets.len();
+    result.ok_or_else(|| VasprunError::MissingElement("array inside dos/total".into()))
+}
+
+/// Parse <array> inside DOS total block. Called after Start("array") event.
+fn parse_dos_array(reader: &mut XmlReader) -> Result<DosData> {
+    // Collect spin sets from nested <set>
+    let mut spin_rows: Vec<Vec<Vec<f64>>> = Vec::new(); // spin > energy_points > [energy, density, integrated]
+    let mut buf = Vec::new();
+
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) => {
+                let tag = e.name().as_ref().to_vec();
+                match tag.as_slice() {
+                    b"set" => {
+                        // Top-level set containing spin sets
+                        spin_rows = parse_dos_top_set(reader)?;
+                    }
+                    _ => {
+                        // Skip field, dimension elements
+                        skip_element(reader, &tag)?;
+                    }
+                }
+            }
+            Event::End(ref e) if e.name().as_ref() == b"array" => break,
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+
+    let nspins = spin_rows.len();
     if nspins == 0 {
         return Err(VasprunError::MissingElement("spin sets in DOS".into()));
     }
 
-    let nedos = spin_sets[0].children()
-        .filter(|n| n.is_element() && n.tag_name().name() == "r")
-        .count();
-
+    let nedos = spin_rows[0].len();
     let mut energies = Vec::with_capacity(nedos);
-    let mut densities  = Array2::<f64>::zeros((nspins, nedos));
+    let mut densities = Array2::<f64>::zeros((nspins, nedos));
     let mut integrated = Array2::<f64>::zeros((nspins, nedos));
 
-    for (si, spin_set) in spin_sets.iter().enumerate() {
-        for (ei, r) in spin_set
-            .children()
-            .filter(|n| n.is_element() && n.tag_name().name() == "r")
-            .enumerate()
-        {
-            let vals = parse_vec_f64(r)?;
-            if si == 0 && vals.len() >= 1 {
-                energies.push(vals[0]);
+    for (si, spin) in spin_rows.iter().enumerate() {
+        for (ei, row) in spin.iter().enumerate() {
+            if si == 0 {
+                if let Some(&e) = row.first() {
+                    energies.push(e);
+                }
             }
-            if vals.len() >= 2 { densities[[si, ei]]  = vals[1]; }
-            if vals.len() >= 3 { integrated[[si, ei]] = vals[2]; }
+            if row.len() >= 2 {
+                densities[[si, ei]] = row[1];
+            }
+            if row.len() >= 3 {
+                integrated[[si, ei]] = row[2];
+            }
         }
     }
 
     Ok(DosData { energies, densities, integrated })
 }
 
-/// Parse <partial> DOS: spin > ion rows of orbital values.
-fn parse_partial_dos(node: Node) -> Result<PartialDos> {
-    let array = child_element(node, "array")
-        .ok_or_else(|| VasprunError::MissingElement("array inside dos/partial".into()))?;
+/// Parse top-level <set> containing spin sets. Returns spin > rows data.
+fn parse_dos_top_set(reader: &mut XmlReader) -> Result<Vec<Vec<Vec<f64>>>> {
+    let mut spins = Vec::new();
+    let mut buf = Vec::new();
 
-    let orbitals: Vec<String> = array
-        .children()
-        .filter(|n| n.is_element() && n.tag_name().name() == "field")
-        .skip(1) // first field is "energy"
-        .map(|f| node_text(f).to_string())
-        .collect();
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) if e.name().as_ref() == b"set" => {
+                // Spin set containing <r> rows
+                let rows = parse_dos_spin_set(reader)?;
+                spins.push(rows);
+            }
+            Event::End(ref e) if e.name().as_ref() == b"set" => break,
+            Event::Eof => break,
+            Event::Start(ref e) => {
+                let tag = e.name().as_ref().to_vec();
+                skip_element(reader, &tag)?;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(spins)
+}
+
+/// Parse spin-level set containing <r> rows.
+fn parse_dos_spin_set(reader: &mut XmlReader) -> Result<Vec<Vec<f64>>> {
+    let mut rows = Vec::new();
+    let mut buf = Vec::new();
+
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) if e.name().as_ref() == b"r" => {
+                let text = read_text(reader)?;
+                let vals = parse_floats(&text)?;
+                rows.push(vals);
+            }
+            Event::End(ref e) if e.name().as_ref() == b"set" => break,
+            Event::Eof => break,
+            Event::Start(ref e) => {
+                let tag = e.name().as_ref().to_vec();
+                skip_element(reader, &tag)?;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(rows)
+}
+
+/// Parse <partial> DOS block. Called after Start("partial") event. Reads until </partial>.
+fn parse_partial_dos(reader: &mut XmlReader) -> Result<PartialDos> {
+    let mut result: Option<PartialDos> = None;
+    let mut buf = Vec::new();
+
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) if e.name().as_ref() == b"array" => {
+                result = Some(parse_partial_array(reader)?);
+            }
+            Event::End(ref e) if e.name().as_ref() == b"partial" => break,
+            Event::Eof => break,
+            Event::Start(ref e) => {
+                let tag = e.name().as_ref().to_vec();
+                skip_element(reader, &tag)?;
+            }
+            _ => {}
+        }
+    }
+
+    result.ok_or_else(|| VasprunError::MissingElement("array inside dos/partial".into()))
+}
+
+/// Parse <array> inside partial DOS block. Called after Start("array") event.
+fn parse_partial_array(reader: &mut XmlReader) -> Result<PartialDos> {
+    let mut orbitals: Vec<String> = Vec::new();
+    // Data: ion > spin > energy_point > orbital_values
+    let mut ion_data: Vec<Vec<Vec<Vec<f64>>>> = Vec::new();
+    let mut skip_first_field = true; // first field is "energy"
+    let mut buf = Vec::new();
+
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) => {
+                let tag = e.name().as_ref().to_vec();
+                match tag.as_slice() {
+                    b"field" => {
+                        let text = read_text(reader)?;
+                        if skip_first_field {
+                            skip_first_field = false;
+                        } else {
+                            orbitals.push(text);
+                        }
+                    }
+                    b"set" => {
+                        // Top-level set containing ion sets
+                        ion_data = parse_partial_top_set(reader)?;
+                    }
+                    _ => {
+                        skip_element(reader, &tag)?;
+                    }
+                }
+            }
+            Event::End(ref e) if e.name().as_ref() == b"array" => break,
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+
     let norbitals = orbitals.len();
-
-    let top_set = child_element(array, "set")
-        .ok_or_else(|| VasprunError::MissingElement("set inside partial dos".into()))?;
-
-    // XML layout: outer_set > ion_set > spin_set > r
-    let ion_sets = children_tagged(top_set, "set");
-    let nions = ion_sets.len();
-
-    let spin_sets_0 = ion_sets.first()
-        .map(|s| children_tagged(*s, "set"))
-        .unwrap_or_default();
-    let nspins = spin_sets_0.len();
-    let nedos = spin_sets_0.first()
-        .map(|s| s.children().filter(|n| n.is_element() && n.tag_name().name() == "r").count())
-        .unwrap_or(0);
+    let nions = ion_data.len();
+    let nspins = if nions > 0 { ion_data[0].len() } else { 0 };
+    let nedos = if nspins > 0 { ion_data[0][0].len() } else { 0 };
 
     let mut data = ndarray::Array4::<f64>::zeros((nspins, nions, norbitals, nedos));
 
-    for (ii, ion_set) in ion_sets.iter().enumerate() {
-        for (si, spin_set) in children_tagged(*ion_set, "set").iter().enumerate() {
-            for (ei, r) in spin_set
-                .children()
-                .filter(|n| n.is_element() && n.tag_name().name() == "r")
-                .enumerate()
-            {
-                let vals = parse_vec_f64(r)?;
-                // cols: energy, orbital0, orbital1, ...
-                for (oi, &v) in vals.iter().skip(1).enumerate().take(norbitals) {
+    for (ii, spins) in ion_data.iter().enumerate() {
+        for (si, energy_pts) in spins.iter().enumerate() {
+            for (ei, row) in energy_pts.iter().enumerate() {
+                // row: [energy, orb0, orb1, ...]
+                for (oi, &v) in row.iter().skip(1).enumerate().take(norbitals) {
                     data[[si, ii, oi, ei]] = v;
                 }
             }
@@ -107,4 +260,56 @@ fn parse_partial_dos(node: Node) -> Result<PartialDos> {
     }
 
     Ok(PartialDos { data, orbitals })
+}
+
+/// Parse top-level <set> containing ion sets. Returns ion > spin > energy_point > values.
+fn parse_partial_top_set(reader: &mut XmlReader) -> Result<Vec<Vec<Vec<Vec<f64>>>>> {
+    let mut ions = Vec::new();
+    let mut buf = Vec::new();
+
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) if e.name().as_ref() == b"set" => {
+                // Ion set containing spin sets
+                let spins = parse_partial_ion_set(reader)?;
+                ions.push(spins);
+            }
+            Event::End(ref e) if e.name().as_ref() == b"set" => break,
+            Event::Eof => break,
+            Event::Start(ref e) => {
+                let tag = e.name().as_ref().to_vec();
+                skip_element(reader, &tag)?;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(ions)
+}
+
+/// Parse ion-level set containing spin sets.
+fn parse_partial_ion_set(reader: &mut XmlReader) -> Result<Vec<Vec<Vec<f64>>>> {
+    let mut spins = Vec::new();
+    let mut buf = Vec::new();
+
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) if e.name().as_ref() == b"set" => {
+                // Spin set containing <r> rows
+                let rows = parse_dos_spin_set(reader)?;
+                spins.push(rows);
+            }
+            Event::End(ref e) if e.name().as_ref() == b"set" => break,
+            Event::Eof => break,
+            Event::Start(ref e) => {
+                let tag = e.name().as_ref().to_vec();
+                skip_element(reader, &tag)?;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(spins)
 }

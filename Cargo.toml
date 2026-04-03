@@ -10,12 +10,15 @@ name = "vasprunrs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-roxmltree   = "0.19"
+quick-xml   = { version = "0.37", features = ["encoding"] }
 ndarray     = "0.16"
 indexmap    = "2"
 anyhow      = "1"
 encoding_rs = "0.8"
 thiserror   = "2"
+memchr      = "2"
+rayon       = "1"
+flate2      = "1"
 
 [dependencies.pyo3]
 version = "0.22"
@@ -31,4 +34,4 @@ default = []
 python  = ["pyo3", "numpy"]
 
 [dev-dependencies]
-approx = "0.5"
+approx  = "0.5"

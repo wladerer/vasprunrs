@@ -9,19 +9,17 @@ tests).
 
 Fixtures
 --------
-si_rpa       tests/si_rpa.xml         – Si, 1-step, total DOS only, dielectric
-mos2_soc     tests/mos2_soc.xml       – MoS2 SOC, Wannier-interpolated dos block
-n_gw         tests/n_gw_large.xml     – N GW post-processing, spin-polarised, no ionic steps
+si_rpa       tests/si_rpa.xml.gz         – Si, 1-step, total DOS only, dielectric
+mos2_soc     tests/mos2_soc.xml.gz       – MoS2 SOC, Wannier-interpolated dos block
+n_gw         tests/n_gw_large.xml.gz     – N GW post-processing, spin-polarised, no ionic steps
 v4c3_geo     research mxene           – V4C3 geo-opt, 27 ionic steps, partial DOS (spd)
 mxene_h_soc  research mxene+H (SOC)   – non-collinear, 4-component partial DOS
 
-Known feature gaps (not tested here, tracked separately)
----------------------------------------------------------
-- projected_eigenvalues: Rust parses them but Python binding does not yet expose
-  the attribute; Vasprunrs.projected_eigenvalues always returns None.
-- kpoints.labels: line-mode k-point labels are parsed in Rust but not included
-  in the Python binding's kpoints dict, so get_band_structure() always returns
-  a plain BandStructure rather than BandStructureSymmLine.
+Implemented features (previously listed as gaps)
+-------------------------------------------------
+- projected_eigenvalues: fully exposed; opt-in via parse_projected_eigen=True.
+- kpoints.labels: parsed in Rust, exposed in the kpoints dict, and available via
+  the v.kpoints property (returns pymatgen.io.vasp.inputs.Kpoints with .labels).
 """
 import os
 import warnings
@@ -45,9 +43,9 @@ except ImportError:
 # ---------------------------------------------------------------------------
 REPO = os.path.dirname(os.path.dirname(__file__))
 
-SI_RPA      = os.path.join(REPO, "tests/si_rpa.xml")
-MOS2_SOC    = os.path.join(REPO, "tests/mos2_soc.xml")
-N_GW        = os.path.join(REPO, "tests/n_gw_large.xml")
+SI_RPA      = os.path.join(REPO, "tests/si_rpa.xml.gz")
+MOS2_SOC    = os.path.join(REPO, "tests/mos2_soc.xml.gz")
+N_GW        = os.path.join(REPO, "tests/n_gw_large.xml.gz")
 V4C3_GEO    = "/home/wladerer/research/mxenes/geo_opt/medium/vasprun.xml"
 MXENE_H_SOC = "/home/wladerer/research/mxenes/soc_adsorption/capped/H/vasprun.xml"
 
@@ -62,15 +60,32 @@ DOS_TOL = 1e-5  # max per-point difference in DOS densities
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+import gzip, tempfile, atexit
+
+_tmp_files = []
+
+def _plain_path(path):
+    """Return a plain-XML path, decompressing .gz to a temp file if needed."""
+    if not path.endswith(".gz"):
+        return path
+    tmp = tempfile.NamedTemporaryFile(suffix=".xml", delete=False)
+    with gzip.open(path, "rb") as f:
+        tmp.write(f.read())
+    tmp.close()
+    _tmp_files.append(tmp.name)
+    return tmp.name
+
+atexit.register(lambda: [os.unlink(p) for p in _tmp_files if os.path.exists(p)])
+
 def pmg(path):
-    return PmgVasprun(path, parse_potcar_file=False)
+    return PmgVasprun(_plain_path(path), parse_potcar_file=False)
 
 def vrs(path):
     return Vasprunrs(path, parse_potcar_file=False)
 
 
 # ===========================================================================
-# Si RPA  (tests/si_rpa.xml)
+# Si RPA  (tests/si_rpa.xml.gz)
 # ===========================================================================
 class TestSiRpa:
     def test_efermi(self):
@@ -132,7 +147,7 @@ class TestSiRpa:
 
 
 # ===========================================================================
-# MoS2 SOC  (tests/mos2_soc.xml)
+# MoS2 SOC  (tests/mos2_soc.xml.gz)
 # Regression: Wannier-interpolated <dos> block must not steal the efermi.
 # ===========================================================================
 class TestMos2Soc:
@@ -180,7 +195,7 @@ class TestMos2Soc:
 
 
 # ===========================================================================
-# N GW  (tests/n_gw_large.xml)
+# N GW  (tests/n_gw_large.xml.gz)
 # Regression: GW post-processing has no ionic steps and is spin-polarised.
 # ===========================================================================
 class TestNGw:
@@ -477,6 +492,31 @@ class TestKpoints:
         v, p = vrs(SI_RPA), pmg(SI_RPA)
         assert np.allclose(v.actual_kpoints, p.actual_kpoints)
         assert np.allclose(v.actual_kpoints_weights, p.actual_kpoints_weights)
+
+    def test_kpoints_property_returns_pmg_object(self):
+        from pymatgen.io.vasp.inputs import Kpoints
+        v = vrs(SI_RPA)
+        assert isinstance(v.kpoints, Kpoints)
+
+    def test_kpoints_property_kpts_match_actual(self):
+        v = vrs(SI_RPA)
+        assert np.allclose(v.kpoints.kpts, v.actual_kpoints)
+
+    def test_kpoints_property_weights_match_actual(self):
+        v = vrs(SI_RPA)
+        assert np.allclose(v.kpoints.kpts_weights, v.actual_kpoints_weights)
+
+    def test_kpoints_labels_none_for_mesh_calc(self):
+        # SI RPA and MOS2 SOC are Gamma/MP mesh runs — labels should be absent.
+        for path in (SI_RPA, MOS2_SOC):
+            v = vrs(path)
+            assert v.kpoints.labels is None, f"Expected no labels for {path}"
+
+    @needs_pmg
+    def test_kpoints_property_parity(self):
+        v, p = vrs(SI_RPA), pmg(SI_RPA)
+        assert np.allclose(v.kpoints.kpts, p.actual_kpoints)
+        assert v.kpoints.labels == p.kpoints.labels
 
 
 class TestInitialStructure:

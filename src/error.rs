@@ -6,7 +6,7 @@ pub enum VasprunError {
     Io(#[from] std::io::Error),
 
     #[error("XML parse error: {0}")]
-    Xml(#[from] roxmltree::Error),
+    Xml(#[from] quick_xml::Error),
 
     #[error("Encoding error: {0}")]
     Encoding(String),

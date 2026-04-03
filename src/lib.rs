@@ -10,7 +10,7 @@ pub use types::*;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-/// Python extension module — registered by maturin when built with `--features python`.
+/// Python extension module. Registered by maturin when built with `--features python`.
 #[cfg(feature = "python")]
 #[pymodule]
 fn vasprunrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -20,37 +20,69 @@ fn vasprunrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
 use std::path::Path;
 
 /// Options controlling what gets parsed.
-#[derive(Debug, Clone, Default)]
+///
+/// Mirrors `pymatgen.io.vasp.outputs.Vasprun.__init__` keyword arguments so the
+/// two APIs stay in sync.
+#[derive(Debug, Clone)]
 pub struct ParseOptions {
-    /// Parse projected eigenvalues (LORBIT >= 10). These are large; skip if not needed.
+    /// Parse eigenvalues (default: true). Disable to speed up structure/energy-only reads.
+    pub parse_eigen: bool,
+    /// Parse projected eigenvalues (LORBIT >= 10). Large; off by default.
     pub parse_projected: bool,
+    /// Parse the DOS block (default: true). Disable for non-DOS calculations.
+    pub parse_dos: bool,
+    /// Only keep every Nth ionic step (None = keep all).
+    pub ionic_step_skip: Option<usize>,
+    /// Skip the first N ionic steps before applying `ionic_step_skip`.
+    pub ionic_step_offset: usize,
 }
 
-/// Parse a `vasprun.xml` file from disk.
+impl Default for ParseOptions {
+    fn default() -> Self {
+        Self {
+            parse_eigen: true,
+            parse_projected: false,
+            parse_dos: true,
+            ionic_step_skip: None,
+            ionic_step_offset: 0,
+        }
+    }
+}
+
+/// Parse a `vasprun.xml` (or `vasprun.xml.gz`) file from disk.
 ///
-/// VASP writes XML with `encoding="ISO-8859-1"` but in practice only emits
-/// ASCII-range bytes, so we transcode to UTF-8 before handing off to roxmltree.
+/// Files whose name ends with `.gz` are decompressed transparently.
 pub fn parse_file(path: impl AsRef<Path>, opts: ParseOptions) -> Result<Vasprun> {
-    let raw = std::fs::read(path.as_ref())?;
+    let path = path.as_ref();
+    let raw = if path.extension().and_then(|e| e.to_str()) == Some("gz") {
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+        let file = std::fs::File::open(path)?;
+        let mut decoder = GzDecoder::new(file);
+        let mut buf = Vec::new();
+        decoder.read_to_end(&mut buf)
+            .map_err(|e| VasprunError::Io(e))?;
+        buf
+    } else {
+        std::fs::read(path)?
+    };
     parse_bytes(&raw, opts)
 }
 
 /// Parse a `vasprun.xml` from an in-memory byte slice.
 pub fn parse_bytes(raw: &[u8], opts: ParseOptions) -> Result<Vasprun> {
     let xml = transcode_to_utf8(raw)?;
-    let doc = roxmltree::Document::parse(&xml)
-        .map_err(VasprunError::Xml)?;
-    parser::parse_document(&doc, opts.parse_projected)
+    let mut parser = parser::VasprunParser::new(xml.as_bytes());
+    parser::parse_document(&mut parser, &opts)
 }
 
 /// Transcode ISO-8859-1 (or plain UTF-8) XML bytes to a UTF-8 String.
 ///
-/// roxmltree requires UTF-8. vasprun.xml declares ISO-8859-1 but in practice
+/// quick-xml requires UTF-8. vasprun.xml declares ISO-8859-1 but in practice
 /// the content is ASCII-compatible; encoding_rs handles both transparently.
 fn transcode_to_utf8(raw: &[u8]) -> Result<String> {
-    // Fast path: already valid UTF-8 with no high bytes → avoid a copy.
-    if std::str::from_utf8(raw).is_ok() {
-        let s = std::str::from_utf8(raw).unwrap();
+    // Fast path: already valid UTF-8 → avoid a copy.
+    if let Ok(s) = std::str::from_utf8(raw) {
         return Ok(rewrite_xml_declaration(s));
     }
 
@@ -64,7 +96,7 @@ fn transcode_to_utf8(raw: &[u8]) -> Result<String> {
     Ok(rewrite_xml_declaration(&cow))
 }
 
-/// Replace `encoding="ISO-8859-1"` with `encoding="UTF-8"` so roxmltree accepts the document.
+/// Replace `encoding="ISO-8859-1"` with `encoding="UTF-8"` so quick-xml accepts the document.
 fn rewrite_xml_declaration(s: &str) -> String {
     if let Some(pos) = s.find("?>") {
         let (decl, rest) = s.split_at(pos + 2);

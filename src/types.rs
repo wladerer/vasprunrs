@@ -117,11 +117,16 @@ pub struct ScfEnergy {
 /// One ionic (geometry) step, containing all SCF steps and final structural data.
 #[derive(Debug)]
 pub struct IonicStep {
-    pub structure:   Structure,
-    pub forces:      Vec<[f64; 3]>,
-    pub stress:      [[f64; 3]; 3],    // kBar
-    pub energy:      ScfEnergy,        // final converged energy
-    pub scf_steps:   Vec<ScfEnergy>,
+    pub structure:     Structure,
+    pub forces:        Vec<[f64; 3]>,
+    pub stress:        [[f64; 3]; 3],      // kBar
+    pub energy:        ScfEnergy,          // final converged energy
+    pub scf_steps:     Vec<ScfEnergy>,
+    /// Per-atom magnetic moments from `<varray name="magnetization">`.
+    /// Each inner `Vec` has 1 element for collinear spin (ISPIN=2) or
+    /// 3 elements for non-collinear (LNONCOLLINEAR=T, i.e. mx my mz).
+    /// `None` when the block is absent (non-magnetic calculations).
+    pub magnetization: Option<Vec<Vec<f64>>>,
 }
 
 /// Kohn-Sham eigenvalues.
