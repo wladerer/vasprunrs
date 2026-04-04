@@ -61,6 +61,8 @@ pub struct Structure {
     pub species:   Vec<String>,
     /// Fractional coordinates per atom.
     pub positions: Vec<[f64; 3]>,
+    /// Selective dynamics flags [tx, ty, tz] per atom. None if not present.
+    pub selective: Option<Vec<[bool; 3]>>,
 }
 
 impl Structure {

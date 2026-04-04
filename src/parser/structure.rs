@@ -11,6 +11,7 @@ pub fn parse_structure(reader: &mut XmlReader, atoms: &[String]) -> Result<Struc
     let mut rec_basis: Option<[[f64; 3]; 3]> = None;
     let mut volume = 0.0f64;
     let mut positions: Option<Vec<[f64; 3]>> = None;
+    let mut selective: Option<Vec<[bool; 3]>> = None;
     let mut buf = Vec::new();
 
     loop {
@@ -30,6 +31,9 @@ pub fn parse_structure(reader: &mut XmlReader, atoms: &[String]) -> Result<Struc
                         match name_attr.as_str() {
                             "positions" => {
                                 positions = Some(parse_varray_v3(reader)?);
+                            }
+                            "selective" => {
+                                selective = Some(parse_selective(reader)?);
                             }
                             _ => {
                                 skip_element(reader, b"varray")?;
@@ -64,7 +68,31 @@ pub fn parse_structure(reader: &mut XmlReader, atoms: &[String]) -> Result<Struc
         atoms.to_vec()
     };
 
-    Ok(Structure { lattice, rec_basis, volume, species, positions })
+    Ok(Structure { lattice, rec_basis, volume, species, positions, selective })
+}
+
+/// Parse <varray name="selective"> — boolean triplets T/F per atom.
+fn parse_selective(reader: &mut XmlReader) -> Result<Vec<[bool; 3]>> {
+    let mut rows = Vec::new();
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_event_into(&mut buf)? {
+            Event::Start(ref e) if e.name().as_ref() == b"v" => {
+                let text = read_text(reader)?;
+                let flags: Vec<bool> = text.split_whitespace()
+                    .map(|s| s.eq_ignore_ascii_case("t"))
+                    .collect();
+                if flags.len() == 3 {
+                    rows.push([flags[0], flags[1], flags[2]]);
+                }
+            }
+            Event::End(ref e) if e.name().as_ref() == b"varray" => break,
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    Ok(rows)
 }
 
 /// Parse <crystal> block. Called after Start("crystal") event.
