@@ -37,6 +37,9 @@ Thumbs.db
 *.swo
 *~
 
+# Decompressed test fixtures (committed as .gz; plain .xml are working copies)
+tests/*.xml
+
 # Test / coverage artifacts
 .pytest_cache/
 .coverage

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Pre-push hook: run Rust and Python tests before any push.
+# Install with: scripts/install-hooks.sh
+set -e
+
+echo "▶ cargo test"
+cargo test
+
+echo "▶ pytest"
+python -m pytest tests/test_pymatgen_shim.py -q
+
+echo "✓ All checks passed"
