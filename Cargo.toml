@@ -21,12 +21,12 @@ rayon       = "1"
 flate2      = "1"
 
 [dependencies.pyo3]
-version = "0.22"
+version = "0.23"
 features = ["extension-module"]
 optional = true
 
 [dependencies.numpy]
-version = "0.22"
+version = "0.23"
 optional = true
 
 [features]

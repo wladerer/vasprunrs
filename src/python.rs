@@ -55,7 +55,7 @@ impl PyVasprun {
 
     #[getter]
     fn incar(&self, py: Python) -> PyResult<PyObject> {
-        let d = PyDict::new_bound(py);
+        let d = PyDict::new(py);
         for (k, v) in &self.inner.incar {
             let pyval: PyObject = match v {
                 IncarValue::Int(i)   => i.into_py(py),
@@ -78,9 +78,9 @@ impl PyVasprun {
 
     #[getter]
     fn atom_types(&self, py: Python) -> PyResult<PyObject> {
-        let list = PyList::empty_bound(py);
+        let list = PyList::empty(py);
         for at in &self.inner.atominfo.atom_types {
-            let d = PyDict::new_bound(py);
+            let d = PyDict::new(py);
             d.set_item("element",         &at.element)?;
             d.set_item("count",           at.count)?;
             d.set_item("mass",            at.mass)?;
@@ -95,9 +95,9 @@ impl PyVasprun {
 
     #[getter]
     fn kpoints(&self, py: Python) -> PyResult<PyObject> {
-        let d = PyDict::new_bound(py);
-        let kl = self.inner.kpoints.kpointlist.clone().into_pyarray_bound(py);
-        let w  = self.inner.kpoints.weights.clone().into_pyarray_bound(py);
+        let d = PyDict::new(py);
+        let kl = self.inner.kpoints.kpointlist.clone().into_pyarray(py);
+        let w  = self.inner.kpoints.weights.clone().into_pyarray(py);
         d.set_item("kpointlist", kl)?;
         d.set_item("weights", w)?;
         if let Some(ref gen) = self.inner.kpoints.generation {
@@ -132,9 +132,9 @@ impl PyVasprun {
 
     #[getter]
     fn ionic_steps(&self, py: Python) -> PyResult<PyObject> {
-        let list = PyList::empty_bound(py);
+        let list = PyList::empty(py);
         for step in &self.inner.ionic_steps {
-            let d = PyDict::new_bound(py);
+            let d = PyDict::new(py);
             d.set_item("structure",   structure_to_dict(py, &step.structure)?)?;
             d.set_item("e_fr_energy", step.energy.e_fr_energy)?;
             d.set_item("e_wo_entrp",  step.energy.e_wo_entrp)?;
@@ -157,7 +157,7 @@ impl PyVasprun {
     #[getter]
     fn eigenvalues(&self, py: Python) -> PyObject {
         match &self.inner.eigenvalues {
-            Some(e) => e.data.clone().into_pyarray_bound(py).into(),
+            Some(e) => e.data.clone().into_pyarray(py).into_any().unbind(),
             None    => py.None(),
         }
     }
@@ -175,8 +175,8 @@ impl PyVasprun {
     #[getter]
     fn projected(&self, py: Python) -> PyResult<PyObject> {
         let Some(ref proj) = self.inner.projected else { return Ok(py.None()) };
-        let d = PyDict::new_bound(py);
-        d.set_item("data",     proj.data.clone().into_pyarray_bound(py))?;
+        let d = PyDict::new(py);
+        d.set_item("data",     proj.data.clone().into_pyarray(py))?;
         d.set_item("orbitals", proj.orbitals.clone())?;
         Ok(d.into())
     }
@@ -191,18 +191,18 @@ impl PyVasprun {
     #[getter]
     fn dos(&self, py: Python) -> PyResult<PyObject> {
         let Some(ref dos) = self.inner.dos else { return Ok(py.None()) };
-        let d = PyDict::new_bound(py);
+        let d = PyDict::new(py);
         d.set_item("efermi", dos.efermi)?;
 
-        let td = PyDict::new_bound(py);
-        td.set_item("energies",   dos.total.energies.clone().into_pyarray_bound(py))?;
-        td.set_item("densities",  dos.total.densities.clone().into_pyarray_bound(py))?;
-        td.set_item("integrated", dos.total.integrated.clone().into_pyarray_bound(py))?;
+        let td = PyDict::new(py);
+        td.set_item("energies",   dos.total.energies.clone().into_pyarray(py))?;
+        td.set_item("densities",  dos.total.densities.clone().into_pyarray(py))?;
+        td.set_item("integrated", dos.total.integrated.clone().into_pyarray(py))?;
         d.set_item("total", td)?;
 
         if let Some(ref pdos) = dos.partial {
-            let pd = PyDict::new_bound(py);
-            pd.set_item("data",     pdos.data.clone().into_pyarray_bound(py))?;
+            let pd = PyDict::new(py);
+            pd.set_item("data",     pdos.data.clone().into_pyarray(py))?;
             pd.set_item("orbitals", pdos.orbitals.clone())?;
             d.set_item("partial", pd)?;
         }
@@ -214,10 +214,10 @@ impl PyVasprun {
     #[getter]
     fn dielectric(&self, py: Python) -> PyResult<PyObject> {
         let Some(ref diel) = self.inner.dielectric else { return Ok(py.None()) };
-        let d = PyDict::new_bound(py);
-        d.set_item("energies", diel.energies.clone().into_pyarray_bound(py))?;
-        d.set_item("real",     diel.real.clone().into_pyarray_bound(py))?;
-        d.set_item("imag",     diel.imag.clone().into_pyarray_bound(py))?;
+        let d = PyDict::new(py);
+        d.set_item("energies", diel.energies.clone().into_pyarray(py))?;
+        d.set_item("real",     diel.real.clone().into_pyarray(py))?;
+        d.set_item("imag",     diel.imag.clone().into_pyarray(py))?;
         Ok(d.into())
     }
 
@@ -247,7 +247,7 @@ impl PyVasprun {
 // ---------------------------------------------------------------------------
 
 fn structure_to_dict(py: Python, s: &Structure) -> PyResult<PyObject> {
-    let d = PyDict::new_bound(py);
+    let d = PyDict::new(py);
     let lat: Vec<Vec<f64>> = s.lattice.iter().map(|r| r.to_vec()).collect();
     d.set_item("lattice",   lat)?;
     d.set_item("volume",    s.volume)?;
