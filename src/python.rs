@@ -233,9 +233,64 @@ impl PyVasprun {
 
     #[getter]
     fn converged(&self) -> bool {
-        self.inner.ionic_steps.last()
-            .map(|s| s.energy.e_fr_energy != 0.0)
-            .unwrap_or(false)
+        fn incar_f64(incar: &indexmap::IndexMap<String, IncarValue>, key: &str, default: f64) -> f64 {
+            match incar.get(key) {
+                Some(IncarValue::Float(f)) => *f,
+                Some(IncarValue::Int(i))   => *i as f64,
+                _ => default,
+            }
+        }
+        fn incar_i64(incar: &indexmap::IndexMap<String, IncarValue>, key: &str, default: i64) -> i64 {
+            match incar.get(key) {
+                Some(IncarValue::Int(i))   => *i,
+                Some(IncarValue::Float(f)) => *f as i64,
+                _ => default,
+            }
+        }
+
+        let incar  = &self.inner.incar;
+        let ediff  = incar_f64(incar, "EDIFF",  1e-4);
+        let ediffg = incar_f64(incar, "EDIFFG", -0.01);
+        let ibrion = incar_i64(incar, "IBRION", -1);
+        let nsw    = incar_i64(incar, "NSW",     0);
+
+        let Some(last) = self.inner.ionic_steps.last() else { return false };
+
+        let is_relax = ibrion != -1 && nsw > 0;
+
+        if !is_relax {
+            // Single-point: check electronic convergence only (last SCF dE < EDIFF)
+            let scf = &last.scf_steps;
+            if scf.len() >= 2 {
+                let de = (scf[scf.len()-1].e_wo_entrp - scf[scf.len()-2].e_wo_entrp).abs();
+                return de < ediff;
+            }
+            return false;
+        }
+
+        // Ionic convergence
+        if ediffg < 0.0 {
+            // Force criterion: Fmax over unfrozen atoms < |EDIFFG|
+            let sel    = &last.structure.selective;
+            let fmax   = last.forces.iter().enumerate()
+                .filter(|(i, _)| {
+                    sel.as_ref()
+                        .and_then(|s| s.get(*i))
+                        .map(|f| f.iter().any(|&b| b))
+                        .unwrap_or(true)
+                })
+                .map(|(_, f)| (f[0]*f[0] + f[1]*f[1] + f[2]*f[2]).sqrt())
+                .fold(0.0f64, f64::max);
+            fmax < ediffg.abs()
+        } else {
+            // Energy criterion: ionic |dE| < EDIFFG
+            let steps = &self.inner.ionic_steps;
+            steps.len() >= 2 && {
+                let de = (steps[steps.len()-1].energy.e_wo_entrp
+                        - steps[steps.len()-2].energy.e_wo_entrp).abs();
+                de < ediffg
+            }
+        }
     }
 
     fn __repr__(&self) -> String {
