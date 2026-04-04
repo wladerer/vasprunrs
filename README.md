@@ -48,6 +48,133 @@ print(vr.eigenvalues.shape) # (nspins, nkpts, nbands, 2)
 print(vr.dos)               # dict with efermi, total, partial
 ```
 
+## Command-line interface
+
+```bash
+pip install "vasprunrs[cli]"
+```
+
+### Convergence summary
+
+```bash
+# defaults to ./vasprun.xml
+vasprunrs
+
+# explicit file
+vasprunrs path/to/vasprun.xml
+
+# watch a running calculation, refresh every 5 s
+vasprunrs vasprun.xml --watch 5
+```
+
+Example output for a geometry optimization:
+
+```
+  fe_relax.xml
+  ------------
+  VASP 6.4.1  vasp
+  NCORE=4  NPAR=2  KPAR=1
+  Atoms: 2 x Fe    K-points: 29
+
+  Calculation
+  Type   : Geometry optimization (CG)
+  Cell   : Relax ions + shape + volume
+  Max    : NSW=50 ionic steps,  NELM=60 SCF/step
+  EDIFF  : 1.0e-05 eV  (electronic convergence)
+  EDIFFG : -0.01 eV/A  (force convergence)
+
+  Ionic convergence
+  #      E_wo_entrp (eV)   dE (eV)       log|dE|   Fmax (eV/A)  nSCF
+  -----  ----------------  ------------  --------  -----------  -----
+  1      -14.123456        --            --        0.2340       42
+  2      -14.145678        -2.222e-02    -1.65     0.0980       28
+  3      -14.152341        -6.663e-03    -2.18     0.0310       21
+  4      -14.153012        -6.710e-04    -3.17     0.0080*      18
+
+  Last ionic step -- electronic convergence
+   SCF   E_wo_entrp (eV)       dE (eV)   log|dE|
+  ----  ----------------  ------------  --------
+     1        -14.160000            --        --
+     ...
+
+  Result: CONVERGED  (Fmax 0.0080 <= |EDIFFG| 0.0100 eV/A)
+  Trend : -0.51 log-units/step
+```
+
+Column legend: `*` on Fmax = force criterion met; `!` on Fmax/nSCF = NELM hit (electronic convergence not reached); `+` suffix on step number = energy increased.
+
+Optional columns:
+
+| Flag | Column added |
+|------|-------------|
+| `-e` / `--toten` | TOTEN (free energy with entropy) |
+| `-a` / `--favg` | Average force magnitude |
+| `-x` / `--fmaxis` | Axis of largest force component |
+| `-i` / `--fmidx` | Atom index with largest force (1-based) |
+| `-v` / `--volume` | Cell volume per step |
+| `--no-fmax` | Suppress Fmax |
+| `--no-lgde` | Suppress log\|dE\| |
+| `--no-magmom` | Suppress magnetic moment |
+| `--no-nscf` | Suppress SCF count |
+
+Selective dynamics are read directly from `vasprun.xml` — frozen atoms are automatically excluded from Fmax without needing a separate POSCAR file.
+
+### Export band structure data
+
+```bash
+vasprunrs bands vasprun.xml -o bands.npz
+vasprunrs bands vasprun.xml -o bands.npz --shift-efermi --projected
+```
+
+| Key | Shape | Description |
+|-----|-------|-------------|
+| `eigenvalues` | `(nspins, nkpts, nbands)` | Band energies in eV |
+| `occupancies` | `(nspins, nkpts, nbands)` | Occupancies |
+| `kpoints` | `(nkpts, 3)` | Fractional reciprocal coordinates |
+| `weights` | `(nkpts,)` | K-point weights |
+| `efermi` | scalar | Fermi energy in eV |
+| `labels` | object array | `(kpt_index, label)` pairs for high-symmetry points |
+| `projected` | `(nspins, nkpts, nbands, nions, norbitals)` | Orbital weights (`--projected` only) |
+| `orbitals` | object array | Orbital label strings (`--projected` only) |
+
+### Export DOS data
+
+```bash
+vasprunrs dos vasprun.xml -o dos.npz
+```
+
+| Key | Shape | Description |
+|-----|-------|-------------|
+| `energies` | `(nedos,)` | Energy grid in eV |
+| `total` | `(nspins, nedos)` | Total DOS |
+| `integrated` | `(nspins, nedos)` | Integrated DOS |
+| `efermi` | scalar | Fermi energy in eV |
+| `partial` | `(nspins, nions, norbitals, nedos)` | Partial DOS (if present) |
+| `orbitals` | object array | Orbital label strings (if partial DOS present) |
+
+### Plotting projected band structures
+
+`scripts/plot_bands.py` reads the `.npz` from `vasprunrs bands --projected` and produces a fat band plot where dot size encodes orbital character.
+
+```bash
+# plain band structure
+python scripts/plot_bands.py bands.npz
+
+# fat bands: d-orbital character
+python scripts/plot_bands.py bands.npz --orbital d
+
+# multiple orbital groups with distinct colors
+python scripts/plot_bands.py bands.npz --orbital s p d
+
+# spin-down channel, save to file
+python scripts/plot_bands.py bands.npz --orbital d --spin 1 -o fatbands.png
+
+# adjust energy window and dot scale
+python scripts/plot_bands.py bands.npz --orbital d --emin -3 --emax 3 --scale 300
+```
+
+Supported orbital group names: `s`, `p`, `d`, `f`, `sp`, `pd` — or any individual orbital name (e.g. `dxy`, `x2-y2`). High-symmetry labels and line-mode segment breaks are handled automatically.
+
 ## Features
 
 | Feature | Status |
