@@ -20,9 +20,9 @@ jobs:
             target: x86_64
           - os: ubuntu-latest
             target: aarch64
-          - os: macos-13        # Intel
+          - os: macos-latest    # Apple Silicon, cross-compiles Intel
             target: x86_64
-          - os: macos-14        # Apple Silicon
+          - os: macos-latest    # Apple Silicon native
             target: aarch64
           - os: windows-latest
             target: x86_64
