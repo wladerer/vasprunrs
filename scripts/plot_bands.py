@@ -45,7 +45,7 @@ import numpy as np
 ORBITAL_GROUPS: dict[str, list[str]] = {
     "s":  ["s"],
     "p":  ["px", "py", "pz"],
-    "d":  ["dxy", "dyz", "dz2", "dxz", "dx2"],
+    "d":  ["dxy", "dyz", "dz2", "dxz", "dx2", "x2-y2", "dx2-y2"],
     "f":  ["f-3", "f-2", "f-1", "f0", "f1", "f2", "f3"],
     "sp": ["s", "px", "py", "pz"],
     "pd": ["px", "py", "pz", "dxy", "dyz", "dz2", "dxz", "dx2"],
@@ -168,17 +168,23 @@ def plot_bands(
         else:
             # fat bands: one pass per orbital group
             for g, (grp, color) in enumerate(zip(orbital_groups, COLORS)):
-                w = orbital_weight(projected, orb_labels, grp, spin)[:, b]
-                # clip and normalise weight to [0, 1] for line width scaling
+                w = orbital_weight(projected, orb_labels, grp, spin)[:, b].ravel()
+                # clip weights to non-negative
                 w = np.clip(w, 0, None)
+                first_seg = True
                 for seg_start, seg_end in _segments(nkpts, breaks):
-                    x = kdist[seg_start:seg_end]
-                    y = ene[seg_start:seg_end]
+                    if seg_end <= seg_start:
+                        continue
+                    x  = kdist[seg_start:seg_end]
+                    y  = ene[seg_start:seg_end]
                     ww = w[seg_start:seg_end]
-                    # draw as scatter: size encodes orbital weight
-                    ax.scatter(x, y, s=ww * scale, color=color, linewidths=0,
-                               zorder=2 + g, label=grp if b == 0 else None, rasterized=True)
                     ax.plot(x, y, color="#cccccc", lw=lw * 0.5, zorder=1, rasterized=True)
+                    # scatter: size encodes orbital weight
+                    ax.scatter(x, y, s=ww * scale, color=color, linewidths=0,
+                               zorder=2 + g,
+                               label=(grp if (b == 0 and first_seg) else None),
+                               rasterized=True)
+                    first_seg = False
 
     # -- segment break lines --
     for br in breaks:
