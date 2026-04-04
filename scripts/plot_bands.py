@@ -112,15 +112,19 @@ def orbital_weight(
     -------
     weight : (nkpts, nbands)  summed over ions and selected orbitals
     """
-    names = ORBITAL_GROUPS.get(orbital_group, [orbital_group])
+    names   = ORBITAL_GROUPS.get(orbital_group, [orbital_group])
     indices = [i for i, o in enumerate(orbitals) if o in names]
+    nkpts, nbands = projected.shape[1], projected.shape[2]
     if not indices:
         print(f"  Warning: no orbitals matched '{orbital_group}' in {orbitals}", file=sys.stderr)
-        nkpts, nbands = projected.shape[1], projected.shape[2]
         return np.zeros((nkpts, nbands))
-    # sum over ions (axis=3) and selected orbitals
-    w = projected[spin, :, :, :, indices]  # (nkpts, nbands, nions, len(indices))
-    return w.sum(axis=(2, 3))              # (nkpts, nbands)
+    # Explicit loop avoids numpy advanced-indexing axis-reordering surprises
+    # when scalar and list indices are mixed with slice indices.
+    # projected[spin, :, :, :, oidx] -> (nkpts, nbands, nions), sum over ions -> (nkpts, nbands)
+    result = np.zeros((nkpts, nbands), dtype=float)
+    for oidx in indices:
+        result += projected[spin, :, :, :, oidx].sum(axis=2)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -168,16 +172,16 @@ def plot_bands(
         else:
             # fat bands: one pass per orbital group
             for g, (grp, color) in enumerate(zip(orbital_groups, COLORS)):
-                w = orbital_weight(projected, orb_labels, grp, spin)[:, b].ravel()
-                # clip weights to non-negative
-                w = np.clip(w, 0, None)
+                # orbital_weight returns (nkpts, nbands); select band b -> (nkpts,)
+                wband = orbital_weight(projected, orb_labels, grp, spin)[:, b]
+                w = np.clip(wband.ravel(), 0, None)  # ensure 1-D, non-negative
                 first_seg = True
                 for seg_start, seg_end in _segments(nkpts, breaks):
                     if seg_end <= seg_start:
                         continue
                     x  = kdist[seg_start:seg_end]
                     y  = ene[seg_start:seg_end]
-                    ww = w[seg_start:seg_end]
+                    ww = w[seg_start:seg_end].ravel()
                     ax.plot(x, y, color="#cccccc", lw=lw * 0.5, zorder=1, rasterized=True)
                     # scatter: size encodes orbital weight
                     ax.scatter(x, y, s=ww * scale, color=color, linewidths=0,
