@@ -146,6 +146,14 @@ impl PyVasprun {
             if let Some(ref mag) = step.magnetization {
                 d.set_item("magnetization", mag.clone())?;
             }
+            let scf: Vec<_> = step.scf_steps.iter().map(|s| {
+                let sd = PyDict::new(py);
+                let _ = sd.set_item("e_fr_energy", s.e_fr_energy);
+                let _ = sd.set_item("e_wo_entrp",  s.e_wo_entrp);
+                let _ = sd.set_item("e_0_energy",  s.e_0_energy);
+                sd.into_any().unbind()
+            }).collect();
+            d.set_item("scf_steps", scf)?;
             list.append(d)?;
         }
         Ok(list.into())
@@ -254,6 +262,10 @@ fn structure_to_dict(py: Python, s: &Structure) -> PyResult<PyObject> {
     let pos: Vec<Vec<f64>> = s.positions.iter().map(|p| p.to_vec()).collect();
     d.set_item("positions", pos)?;
     d.set_item("species",   &s.species)?;
+    if let Some(ref sel) = s.selective {
+        let flags: Vec<Vec<bool>> = sel.iter().map(|f| f.to_vec()).collect();
+        d.set_item("selective", flags)?;
+    }
     Ok(d.into())
 }
 
